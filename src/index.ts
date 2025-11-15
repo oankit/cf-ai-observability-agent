@@ -1,22 +1,25 @@
 /**
- * LLM Chat Application Template
+ * Cloudflare AI Observability Agent
  *
- * A simple chat application using Cloudflare Workers AI.
- * This template demonstrates how to implement an LLM-powered chat interface with
- * streaming responses using Server-Sent Events (SSE).
+ * An intelligent observability and troubleshooting agent that uses:
+ * - Workers AI (Llama 3.3 + Hermes 2 Pro) for LLM capabilities
+ * - Durable Objects for stateful conversation management
+ * - Vectorize for semantic memory and intelligent caching
+ * - MCP servers for Observability, Documentation, and Bindings
  *
  * @license MIT
  */
-import { Env, ChatMessage } from "./types";
 
-// Model ID for Workers AI model
-// https://developers.cloudflare.com/workers-ai/models/
-const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+import { Env } from "./types";
+import { ObservabilityAgent } from "./agent";
+import { WELCOME_MESSAGE } from "./examples";
 
-// Default system prompt
-const SYSTEM_PROMPT =
-  "You are a helpful, friendly assistant. Provide concise and accurate responses.";
+// Export the Durable Object class
+export { ObservabilityAgent };
 
+/**
+ * Main Worker export
+ */
 export default {
   /**
    * Main request handler for the Worker
@@ -27,73 +30,170 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
+    const path = url.pathname;
 
-    // Handle static assets (frontend)
-    if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
+    // Enable CORS for all API requests
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // Serve static assets (frontend)
+    if (path === "/" || (!path.startsWith("/api/") && !path.startsWith("/agent/"))) {
       return env.ASSETS.fetch(request);
     }
 
     // API Routes
-    if (url.pathname === "/api/chat") {
-      // Handle POST requests for chat
-      if (request.method === "POST") {
-        return handleChatRequest(request, env);
+    try {
+      // GET /api/welcome - Get welcome message
+      if (path === "/api/welcome" && request.method === "GET") {
+        return new Response(JSON.stringify({
+          message: WELCOME_MESSAGE,
+          timestamp: Date.now()
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
 
-      // Method not allowed for other request types
-      return new Response("Method not allowed", { status: 405 });
-    }
+      // POST /api/chat - Chat endpoint (routes to Durable Object)
+      if (path === "/api/chat" && request.method === "POST") {
+        const { message, sessionId } = await request.json() as {
+          message: string;
+          sessionId?: string;
+        };
 
-    // Handle 404 for unmatched routes
-    return new Response("Not found", { status: 404 });
+        if (!message) {
+          return new Response(JSON.stringify({ error: 'Message is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Get or create Durable Object for this session
+        const id = sessionId
+          ? env.OBSERVABILITY_AGENT.idFromName(sessionId)
+          : env.OBSERVABILITY_AGENT.newUniqueId();
+        const stub = env.OBSERVABILITY_AGENT.get(id);
+
+        // Forward request to Durable Object
+        const agentResponse = await stub.fetch(new Request('http://agent/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        }));
+
+        const data = await agentResponse.json();
+
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // GET /api/history - Get conversation history
+      if (path === "/api/history" && request.method === "GET") {
+        const sessionId = url.searchParams.get('sessionId');
+        
+        if (!sessionId) {
+          return new Response(JSON.stringify({ error: 'sessionId is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const id = env.OBSERVABILITY_AGENT.idFromName(sessionId);
+        const stub = env.OBSERVABILITY_AGENT.get(id);
+
+        const response = await stub.fetch(new Request('http://agent/history', {
+          method: 'GET'
+        }));
+
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // POST /api/clear - Clear conversation history
+      if (path === "/api/clear" && request.method === "POST") {
+        const { sessionId } = await request.json() as { sessionId: string };
+
+        if (!sessionId) {
+          return new Response(JSON.stringify({ error: 'sessionId is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const id = env.OBSERVABILITY_AGENT.idFromName(sessionId);
+        const stub = env.OBSERVABILITY_AGENT.get(id);
+
+        await stub.fetch(new Request('http://agent/clear', {
+          method: 'POST'
+        }));
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // GET /api/stats - Get agent statistics
+      if (path === "/api/stats" && request.method === "GET") {
+        const sessionId = url.searchParams.get('sessionId');
+
+        if (!sessionId) {
+          return new Response(JSON.stringify({ error: 'sessionId is required' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const id = env.OBSERVABILITY_AGENT.idFromName(sessionId);
+        const stub = env.OBSERVABILITY_AGENT.get(id);
+
+        const response = await stub.fetch(new Request('http://agent/stats', {
+          method: 'GET'
+        }));
+
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // GET /api/health - Health check
+      if (path === "/api/health" && request.method === "GET") {
+        return new Response(JSON.stringify({
+          status: 'healthy',
+          timestamp: Date.now(),
+          version: '1.0.0'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Handle 404 for unmatched API routes
+      return new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error("Error processing request:", error);
+      return new Response(
+        JSON.stringify({
+          error: "Internal server error",
+          message: error instanceof Error ? error.message : 'Unknown error'
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
   },
 } satisfies ExportedHandler<Env>;
-
-/**
- * Handles chat API requests
- */
-async function handleChatRequest(
-  request: Request,
-  env: Env,
-): Promise<Response> {
-  try {
-    // Parse JSON request body
-    const { messages = [] } = (await request.json()) as {
-      messages: ChatMessage[];
-    };
-
-    // Add system prompt if not present
-    if (!messages.some((msg) => msg.role === "system")) {
-      messages.unshift({ role: "system", content: SYSTEM_PROMPT });
-    }
-
-    const response = await env.AI.run(
-      MODEL_ID,
-      {
-        messages,
-        max_tokens: 1024,
-      },
-      {
-        returnRawResponse: true,
-        // Uncomment to use AI Gateway
-        // gateway: {
-        //   id: "YOUR_GATEWAY_ID", // Replace with your AI Gateway ID
-        //   skipCache: false,      // Set to true to bypass cache
-        //   cacheTtl: 3600,        // Cache time-to-live in seconds
-        // },
-      },
-    );
-
-    // Return streaming response
-    return response;
-  } catch (error) {
-    console.error("Error processing chat request:", error);
-    return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
-      {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      },
-    );
-  }
-}

@@ -1,22 +1,27 @@
 {
   "name": "cf-ai-observability-agent",
-  "description": "A simple chat application powered by Cloudflare Workers AI",
+  "description": "AI-powered observability agent using Cloudflare Agents SDK and MCP servers",
   "private": true,
+  "version": "1.0.0",
   "cloudflare": {
-    "label": "LLM Chat App",
+    "label": "AI Observability Agent",
     "products": [
       "Workers",
       "Workers AI",
+      "Durable Objects",
+      "Vectorize",
       "AI Gateway"
     ],
     "categories": [
-      "ai"
+      "ai",
+      "observability"
     ],
     "docs_url": "https://developers.cloudflare.com/workers-ai/",
     "preview_icon_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/a974bd55-20c6-4656-fa29-1551d43ddc00/public",
     "preview_image_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/65dd8441-89d3-491d-c5a1-0a000d070700/preview",
     "publish": true
   },
+  "dependencies": {},
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.8.44",
     "@cloudflare/workers-types": "^4.20250425.0",
@@ -26,11 +31,12 @@
     "wrangler": "4.21.x"
   },
   "scripts": {
-    "cf-typegen": "wrangler types",
-    "check": "tsc --noEmit && wrangler deploy --dry-run",
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "test": "vitest"
+    "cf-typegen": "npx wrangler types",
+    "check": "npx tsc --noEmit",
+    "deploy": "npx wrangler deploy",
+    "dev": "npx wrangler dev",
+    "start": "npx wrangler dev",
+    "test": "npx vitest",
+    "vectorize:create": "npx wrangler vectorize create observability-memory --dimensions=768 --metric=cosine"
   }
 }

@@ -1,11 +1,16 @@
 /**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
+ * Cloudflare AI Observability Agent Configuration
+ * 
+ * This Worker uses:
+ * - Workers AI (Llama 3.3 + Hermes 2 Pro) for LLM capabilities
+ * - Agents SDK for MCP integration and state management
+ * - Vectorize for semantic memory and caching
+ * - Durable Objects for conversation persistence
  */ {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cf-ai-observability-agent",
   "main": "src/index.ts",
-  "compatibility_date": "2025-10-08",
+  "compatibility_date": "2025-11-15",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "binding": "ASSETS",
@@ -17,5 +22,25 @@
   "ai": {
     "binding": "AI"
   },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "observability-memory"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OBSERVABILITY_AGENT",
+        "class_name": "ObservabilityAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ObservabilityAgent"]
+    }
+  ],
   "upload_source_maps": true
 }
